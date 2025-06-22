@@ -19,7 +19,7 @@ logging.basicConfig(
 GAMES = [
     "Bopl Battle", "Buckshot Roulette", "Content Warning",
     "Lethal Company", "R.E.P.O", "WEBFISHING",
-    "Minecraft", "Roblox", "Deep Rock Galactic"
+    "Minecraft", "Roblox", "Deep Rock Galactic, Peak"
 ]
 QUOTE, AUTHOR, CONFIRM = range(3)
 
