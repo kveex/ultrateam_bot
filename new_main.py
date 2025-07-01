@@ -1,8 +1,10 @@
 import logging
 import asyncio
 import random
+import re
 from functools import wraps
 from telegram.error import BadRequest
+from telegram.helpers import escape_markdown
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, ConversationHandler, filters
@@ -15,12 +17,18 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Список игр
 GAMES = [
     "Bopl Battle", "Buckshot Roulette", "Content Warning",
     "Lethal Company", "R.E.P.O", "WEBFISHING",
-    "Minecraft", "Roblox", "Deep Rock Galactic, Peak"
+    "Minecraft", "Roblox", "Deep Rock Galactic", "Peak"
 ]
+chicken_jockey = [
+    "чикен джоке", "чикен жоке", "чикен джоки",
+    "чикен жоки", "чикен джокей", "чикен жокей",
+    "chicken jockey", "chicken jokey", "chicken jocey"
+]
+flint_and_steel = ["флинт анд стиил", "флинт анд стиел", "флинт анд стил"]
+
 QUOTE, AUTHOR, CONFIRM = range(3)
 
 def restricted(func):
@@ -75,8 +83,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "random_quote":
         quote, author = db.get_quote()
-        text = f"_{quote}_\n\n— *{author}*"
-        await msg.edit_text(text, parse_mode="Markdown")
+        text = f"_{escape_markdown(quote, 2)}_\n\n||— *{author}*||"
+        await msg.edit_text(text, parse_mode="MarkdownV2")
 
 @restricted
 async def mention_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -84,19 +92,25 @@ async def mention_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = message.text
     normalno = ["нормально", "н0рмально", "нормальн0", "норм", "нoрм", "Нoрмально"]
     mentions = ["ультра", "хей ультра", "хей, ультра", "ультра!", "привет, ультра", "привет ультра", "придурок", "придурок!", "UltraTeam Botik"]
-    chicken_jockey = ["чикен джоке", "чикен жоке", "чикен джоки", "чикен жоки", "чикен джокей", "чикен жокей", "chicken jockey", "chicken jokey", "chicken jocey"]
+    funny = re.compile(r'\b[хепи]{2,}\b', re.IGNORECASE)
+
     if any(mention == text.lower() for mention in mentions):
         await start(update, context)
     elif any(word in text.lower() for word in normalno):
         await message.reply_text(f"УльтраНормально? Мне было УльтраНормально однажды. Они УльтраЗакрыли меня в УльтраКомнате. УльтраРезиновой УльтраКомнате. УльтраРезиновой УльтраКомнате с УльтраКрысами. И мне было УльтраНормально.")
     elif ")" in text.lower() and "(" not in text.lower():
         await message.reply_text(")")
+    elif funny.search(text.lower()):
+        await message.reply_text("Хех...)")
     elif "ультрамнение" in text.lower():
         await message.reply_text(yes_or_no())
     elif "ультракто" in text.lower():
         await message.reply_text(pick_who())
     elif any(cj in text.lower() for cj in chicken_jockey):
-        await message.reply_video("cj.mp4")
+        logging.info("Видео отправляется")
+        path, caption = db.get_meme()
+        await message.reply_video(video=path, caption=caption)
+        logging.info("Видео отправлено")
 
 @restricted
 async def remove_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -163,11 +177,11 @@ def yes_or_no() -> str:
 
 def pick_who() -> str:
     names = ["Квикс", "Куст", "Фиш", "Пингвин", "Я"]
-    words = ["Думаю", "Наверное", "Вероятно", "", "", ""]
+    words = ["Думаю", "Наверное", "Вероятно", " ", " ", " "]
 
     name = random.choice(names)
     word = random.choice(words)
-    if word == "":
+    if word == " ":
         return name
     else:
         return word + " " + name

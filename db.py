@@ -28,3 +28,8 @@ def get_quote() -> tuple[str, str]:
     cursor.execute("SELECT quote, author FROM quotes ORDER BY RANDOM() LIMIT 1")
     quote, author = cursor.fetchone()
     return quote, author
+
+def get_meme() -> tuple[str, str]:
+    cursor.execute("SELECT path, caption FROM memes ORDER BY RANDOM() LIMIT 1")
+    path, caption = cursor.fetchone()
+    return path, caption
