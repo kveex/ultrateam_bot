@@ -8,20 +8,16 @@ logging.basicConfig(
 connection = sqlite3.connect("bot.db")
 cursor = connection.cursor()
 
-try:
-    cursor.execute("CREATE TABLE users(user_id INT UNIQUE, can_use BOOL DEFAULT false)")
-except sqlite3.OperationalError:
-    pass
+def is_user_allowed(user_id) -> bool:
+    cursor.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id, ))
+    allowed = cursor.fetchone() is not None
+    logging.info(f"User [{user_id}] allowed: {allowed}")
+    return allowed
 
-def is_allowed(user_id) -> bool:
-    data = cursor.execute("SELECT can_use FROM users WHERE user_id = ?", (user_id,))
-    res = data.fetchone()
-    # logging.info(res)
-    try:
-        allowed = bool(res[0])
-    except TypeError:
-        allowed = False
-    logging.info(f"Is [{user_id}] allowed: {allowed}")
+def is_func_open_for_public(func_name) -> bool:
+    cursor.execute("SELECT 1 FROM funcs WHERE func_name = ?", (func_name, ))
+    allowed = cursor.fetchone() is not None
+    logging.info(f"Func [{func_name}] open: {allowed}")
     return allowed
 
 def get_quote() -> tuple[str, str]:

@@ -6,7 +6,7 @@ from functools import wraps
 from telegram.error import BadRequest
 from telegram.helpers import escape_markdown
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, MaybeInaccessibleMessage
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, ConversationHandler, filters
 import db
 from own import TOKEN
@@ -33,13 +33,14 @@ QUOTE, AUTHOR, CONFIRM = range(3)
 
 def restricted(func):
     @wraps(func)
-    async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        uid = update.effective_user.id
-        if not db.is_allowed(uid):
+    async def wrapped(update: Update, *args, **kwargs):
+        user_id = update.effective_user.id
+        func_name = func.__name__
+        if not (db.is_user_allowed(user_id) or db.is_func_open_for_public(func_name)):
+            logging.warning(f"User [{user_id} not allowed to use this bot or function [{func_name}] is private]")
             return None
-        return await func(update, context)
+        return await func(update, *args, **kwargs)
     return wrapped
-
 
 @restricted
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -49,13 +50,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     name = update.effective_user.full_name
+    # if db.is_user_allowed(update.effective_user.id):
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=f"Привет, {name}!\nЧего от меня хочешь?",
         reply_markup=reply_markup
     )
+    # else:
+    #     await context.bot.send_message(update.effective_chat.id, f"Привет {name}")
 
-@restricted
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -63,30 +66,38 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = query.message
 
     if data == "random_game":
-
-        await msg.edit_text("🎲 Выбираем игру...", reply_markup=None)
-        for _ in range(6):
-            await asyncio.sleep(1)
-            game = random.choice(GAMES)
-            new_text = f"🎮 Возможно: {game}"
-            try:
-                await msg.edit_text(new_text)
-            except BadRequest as e:
-                if "Message is not modified" in e.message:
-                    continue
-                logging.warning(f"Ошибка при редактировании: {e}")
-                break
-
-        await asyncio.sleep(1)
-        final_game = random.choice(GAMES)
-        await msg.edit_text(f"✅ Сегодня играем в: *{final_game}*", parse_mode="Markdown")
+        await pick_game(update, msg)
 
     elif data == "random_quote":
-        quote, author = db.get_quote()
-        text = f"_{escape_markdown(quote, 2)}_\n\n||— *{author}*||"
-        await msg.edit_text(text, parse_mode="MarkdownV2")
+        await pick_quote(update, msg)
 
 @restricted
+async def pick_game(update: Update, msg: MaybeInaccessibleMessage):
+    await msg.edit_text("🎲 Выбираем игру...", reply_markup=None)
+    for _ in range(4):
+        await asyncio.sleep(1)
+        game = random.choice(GAMES)
+        logging.info(f"Possible game: {game}")
+        new_text = f"🎮 Возможно: {game}"
+        try:
+            await msg.edit_text(new_text)
+        except BadRequest as e:
+            if "Message is not modified" in e.message:
+                continue
+            logging.warning(f"Ошибка при редактировании: {e}")
+            break
+
+    await asyncio.sleep(1)
+    final_game = random.choice(GAMES)
+    logging.info(f"Final game: {final_game}")
+    await msg.edit_text(f"✅ Сегодня играем в: *{final_game}*", parse_mode="Markdown")
+
+@restricted
+async def pick_quote(update: Update, msg: MaybeInaccessibleMessage):
+    quote, author = db.get_quote()
+    text = f"_{escape_markdown(quote, 2)}_\n\n||— *{author}*||"
+    await msg.edit_text(text, parse_mode="MarkdownV2")
+
 async def mention_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     text = message.text
@@ -97,20 +108,23 @@ async def mention_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if any(mention == text.lower() for mention in mentions):
         await start(update, context)
     elif any(word in text.lower() for word in normalno):
-        await message.reply_text(f"УльтраНормально? Мне было УльтраНормально однажды. Они УльтраЗакрыли меня в УльтраКомнате. УльтраРезиновой УльтраКомнате. УльтраРезиновой УльтраКомнате с УльтраКрысами. И мне было УльтраНормально.")
+        await say_funny_stuff(update, f"УльтраНормально? Мне было УльтраНормально однажды. Они УльтраЗакрыли меня в УльтраКомнате. УльтраРезиновой УльтраКомнате. УльтраРезиновой УльтраКомнате с УльтраКрысами. И мне было УльтраНормально.")
     elif ")" in text.lower() and "(" not in text.lower():
-        await message.reply_text(")")
+        await say_funny_stuff(update, ")")
     elif funny.search(text.lower()):
-        await message.reply_text("Хех...)")
+        await say_funny_stuff(update, "Хех...)")
     elif "ультрамнение" in text.lower():
-        await message.reply_text(yes_or_no())
+        await yes_or_no(update)
     elif "ультракто" in text.lower():
-        await message.reply_text(pick_who())
+        await pick_who(update)
     elif any(cj in text.lower() for cj in chicken_jockey):
-        logging.info("Видео отправляется")
-        path, caption = db.get_meme()
-        await message.reply_video(video=path, caption=caption)
-        logging.info("Видео отправлено")
+        await send_meme(update)
+    elif "а тебя никто не спрашивал" == text.lower():
+        await say_funny_stuff(update, ":(")
+
+@restricted
+async def say_funny_stuff(update: Update, text: str):
+    await update.message.reply_text(text)
 
 @restricted
 async def remove_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -119,6 +133,13 @@ async def remove_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="⌨️ Клавиатура убрана",
         reply_markup=ReplyKeyboardRemove()
     )
+
+@restricted
+async def send_meme(update: Update):
+    logging.info("Видео отправляется")
+    path, caption = db.get_meme()
+    await update.message.reply_video(video=path, caption=caption)
+    logging.info("Видео отправлено")
 
 @restricted
 async def start_add_quote(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -165,7 +186,8 @@ async def confirm_or_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return ConversationHandler.END
 
-def yes_or_no() -> str:
+@restricted
+async def yes_or_no(update: Update):
 
     yes = bool(random.randint(0, 1))
 
@@ -173,18 +195,18 @@ def yes_or_no() -> str:
     no_answer = ["Нет", "Неа", "Думаю нет", "Точно нет"]
 
     text = random.choice(yes_answers) if yes else random.choice(no_answer)
-    return text
+    await update.message.reply_text(text)
 
-def pick_who() -> str:
+@restricted
+async def pick_who(update: Update):
     names = ["Квикс", "Куст", "Фиш", "Пингвин", "Я"]
     words = ["Думаю", "Наверное", "Вероятно", " ", " ", " "]
 
     name = random.choice(names)
     word = random.choice(words)
-    if word == " ":
-        return name
-    else:
-        return word + " " + name
+    text = name if word == " " else word + " " + name
+    logging.info(f"Picked person: {name} [{text }]")
+    await update.message.reply_text(text)
 
 if __name__ == '__main__':
     application = ApplicationBuilder().token(TOKEN).build()
