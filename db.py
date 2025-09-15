@@ -25,7 +25,16 @@ def get_quote() -> tuple[str, str]:
     quote, author = cursor.fetchone()
     return quote, author
 
-def get_meme() -> tuple[str, str]:
+def get_meme() -> tuple[str, str, str]:
     cursor.execute("SELECT path, caption FROM memes ORDER BY RANDOM() LIMIT 1")
     path, caption = cursor.fetchone()
-    return path, caption
+    ext = str(path).split(".")[1]
+    return path, caption, ext
+
+def insert_meme(path, caption):
+    cursor.execute("INSERT INTO memes (path, caption) VALUES (?, ?)", (path, caption))
+    connection.commit()
+
+def insert_quote(quote, author):
+    cursor.execute("INSERT INTO quotes (quote, author) VALUES (?, ?)", (quote, author))
+    connection.commit()

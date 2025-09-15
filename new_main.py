@@ -1,4 +1,5 @@
 import logging
+import os
 import asyncio
 import random
 import re
@@ -30,6 +31,7 @@ chicken_jockey = [
 flint_and_steel = ["флинт анд стиил", "флинт анд стиел", "флинт анд стил"]
 
 QUOTE, AUTHOR, CONFIRM = range(3)
+FILE, CAPTION, VID_CONFIRM = range(3, 6)
 
 def restricted(func):
     @wraps(func)
@@ -44,34 +46,50 @@ def restricted(func):
 
 @restricted
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
     keyboard = [
-        [InlineKeyboardButton("🎮 Выбрать игру", callback_data="random_game")],
-        [InlineKeyboardButton("📜 Случайная цитата", callback_data="random_quote")]
+        [InlineKeyboardButton("🎮 Выбрать игру", callback_data=f"random_game:{user.id}")],
+        [InlineKeyboardButton("📜 Случайная цитата", callback_data=f"random_quote:{user.id}")],
+        [InlineKeyboardButton("🏳️‍🌈 Случайный мем", callback_data=f"random_meme:{user.id}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    name = update.effective_user.full_name
-    # if db.is_user_allowed(update.effective_user.id):
+    name = user.full_name
+
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=f"Привет, {name}!\nЧего от меня хочешь?",
         reply_markup=reply_markup
     )
-    # else:
-    #     await context.bot.send_message(update.effective_chat.id, f"Привет {name}")
 
+@restricted
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = query.data
+    data = query.data.split(":")
     msg = query.message
+    requested_function = data[0]
+    query_user_id = data[1]
 
-    if data == "random_game":
-        await pick_game(update, msg)
+    if int(query_user_id) != query.from_user.id:
+        logging.error(f"query id [{query_user_id}] doesn't match with user id [{query.from_user.id}]")
+        return None
 
-    elif data == "random_quote":
-        await pick_quote(update, msg)
+    match requested_function:
+        case "random_game":
+            await pick_game(update, msg)
+            return None
+        case "random_quote":
+            await pick_quote(update, msg)
+            return None
+        case "random_meme":
+            await context.bot.delete_message(update.effective_chat.id, msg.message_id)
+            await send_meme(update)
+            return None
+        case "file_cancel":
+            await context.bot.send_message(update.effective_chat.id, "Ну лан пока")
+            return ConversationHandler.END
+    return None
 
-@restricted
 async def pick_game(update: Update, msg: MaybeInaccessibleMessage):
     await msg.edit_text("🎲 Выбираем игру...", reply_markup=None)
     for _ in range(4):
@@ -92,7 +110,6 @@ async def pick_game(update: Update, msg: MaybeInaccessibleMessage):
     logging.info(f"Final game: {final_game}")
     await msg.edit_text(f"✅ Сегодня играем в: *{final_game}*", parse_mode="Markdown")
 
-@restricted
 async def pick_quote(update: Update, msg: MaybeInaccessibleMessage):
     quote, author = db.get_quote()
     text = f"_{escape_markdown(quote, 2)}_\n\n||— *{author}*||"
@@ -118,7 +135,7 @@ async def mention_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif "ультракто" in text.lower():
         await pick_who(update)
     elif any(cj in text.lower() for cj in chicken_jockey):
-        await send_meme(update)
+        await reply_meme(update)
     elif "а тебя никто не спрашивал" == text.lower():
         await say_funny_stuff(update, ":(")
 
@@ -135,11 +152,22 @@ async def remove_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 @restricted
+async def reply_meme(update: Update):
+    path, caption, ext = db.get_meme()
+    logging.info(path)
+    logging.info(ext)
+    if ext == "mp4":
+        await update.message.reply_video(video=path, caption=caption)
+    elif ext == "jpg":
+        await update.message.reply_photo(path, caption)
+
 async def send_meme(update: Update):
-    logging.info("Видео отправляется")
-    path, caption = db.get_meme()
-    await update.message.reply_video(video=path, caption=caption)
-    logging.info("Видео отправлено")
+    path, caption, ext = db.get_meme()
+    logging.info(ext)
+    if ext == "mp4":
+        await update.effective_chat.send_video(video=path, caption=caption)
+    elif ext == "jpg":
+        await update.effective_chat.send_photo(path, caption)
 
 @restricted
 async def start_add_quote(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -177,14 +205,203 @@ async def confirm_or_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         author = context.user_data["author"]
 
         # 💾 Сюда вставьте свою запись в БД:
-        db.cursor.execute("INSERT INTO quotes (quote, author) VALUES (?, ?)", (quote, author))
-        db.connection.commit()  # если у вас подключение называется иначе — поправьте
+        db.insert_quote(quote, author)
 
         await query.edit_message_text("✅ Цитата сохранена!")
     else:
         await query.edit_message_text("❌ Добавление цитаты отменено.")
 
     return ConversationHandler.END
+
+@restricted
+async def start_add_meme(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Запуск /add_meme — просим прислать фото или видео."""
+    await update.message.reply_text(
+        "📩 Пришлите видео или фото (как медиа или как файл). "
+        "После получения файла я попрошу подпись. Отправьте /cancel чтобы отменить."
+    )
+    # очистим прошлые данные на случай
+    context.user_data.pop("m_path", None)
+    context.user_data.pop("m_temp_downloaded", None)
+    context.user_data.pop("file_id", None)
+    context.user_data.pop("m_type", None)
+    context.user_data.pop("m_caption", None)
+    return FILE
+
+
+async def file_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Обработка присланного файла: video | photo | document.
+    Сохраняем file_id, тип и предполагаемое расширение — но НЕ скачиваем пока пользователь не подтвердит.
+    """
+    msg = update.message
+    if not msg:
+        await update.message.reply_text("Не получилось получить сообщение. Повторите, пожалуйста.")
+        return FILE
+
+    file_id = None
+    media_type = None
+    ext = ""
+
+    if msg.video:
+        file_id = msg.video.file_id
+        media_type = "video"
+        ext = ".mp4"
+    elif msg.photo:
+        # выбираем самый большой вариант фото
+        largest = msg.photo[-1]
+        file_id = largest.file_id
+        media_type = "photo"
+        ext = ".jpg"
+    elif msg.document:
+        # document: попытаемся сохранить оригинальное расширение
+        file_id = msg.document.file_id
+        filename = getattr(msg.document, "file_name", "") or ""
+        ext = os.path.splitext(filename)[1] or ""
+        mime = getattr(msg.document, "mime_type", "") or ""
+        if mime.startswith("video") and not ext:
+            ext = ".mp4"
+        # классифицируем как video если mime video, иначе как document (photo/document)
+        media_type = "video" if mime.startswith("video") else "document"
+        # если документ и нет расширения — поставим .dat
+        if not ext:
+            ext = ".dat"
+    else:
+        # если пользователь прислал что-то не то — даём кнопку отмены и остаёмся в FILE
+        await msg.reply_text(
+            "🥺 Пожалуйста пришлите видео или фото (как файл/медиа).",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("❌ Отмена", callback_data=f"file_cancel:{msg.from_user.id}")]]
+            )
+        )
+        return FILE
+
+    # сохраним в user_data (пока не скачиваем)
+    context.user_data["file_id"] = file_id
+    context.user_data["m_type"] = media_type
+    context.user_data["m_ext"] = ext
+
+    await update.message.reply_text("Файл получен. Отправьте подпись к файлу (или /skip чтобы пропустить).")
+    return CAPTION
+
+
+async def caption_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Пользователь прислал подпись — показываем кнопки подтверждения."""
+    caption = update.message.text or ""
+    context.user_data["m_caption"] = caption
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Подтвердить", callback_data="meme_confirm:confirm"),
+            InlineKeyboardButton("❌ Отменить", callback_data="meme_confirm:cancel"),
+        ]
+    ]
+    await update.message.reply_text("Вроде смешняво. Добавляем?", reply_markup=InlineKeyboardMarkup(keyboard))
+    return VID_CONFIRM
+
+
+async def skip_caption(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["m_caption"] = ""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Подтвердить", callback_data="meme_confirm:confirm"),
+            InlineKeyboardButton("❌ Отменить", callback_data="meme_confirm:cancel"),
+        ]
+    ]
+    await update.message.reply_text("Без подписи. Добавляем?", reply_markup=InlineKeyboardMarkup(keyboard))
+    return VID_CONFIRM
+
+
+async def file_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Обработка inline-кнопки подтверждения: если confirm — скачиваем и сохраняем (вызов db.insert_meme).
+    Если cancel — отменяем.
+    """
+    query = update.callback_query
+    await query.answer()
+    data = (query.data or "")
+    parts = data.split(":")
+    action = parts[1] if len(parts) > 1 else ""
+
+    # только владелец должен подтверждать — но тут ConversationHandler уже связан с тем же пользователем,
+    # тем не менее можно перестраховаться, проверив ID в message (если нужно)
+    if action == "cancel":
+        # очистим временные данные
+        context.user_data.pop("file_id", None)
+        context.user_data.pop("m_type", None)
+        context.user_data.pop("m_ext", None)
+        context.user_data.pop("m_caption", None)
+        await query.edit_message_text("Добавление отменено.")
+        return ConversationHandler.END
+
+    # action == "confirm"
+    file_id = context.user_data.get("file_id")
+    media_type = context.user_data.get("m_type")
+    ext = context.user_data.get("m_ext", "")
+    caption = context.user_data.get("m_caption", "")
+
+    if not file_id or not media_type:
+        await query.edit_message_text("Что-то пошло не так — нет данных о файле. Отмена.")
+        return ConversationHandler.END
+
+    # формируем уникальное имя с расширением (если ext пустой — подставим .dat)
+    if not ext:
+        ext = ".dat"
+    filename = f"{random.randint(0, 32000)}_{random.randint(0, 32000)}{ext}"
+    out_path = os.path.join("memes", filename)
+
+    # скачиваем файл
+    try:
+        file = await context.bot.get_file(file_id)
+        try:
+            await file.download_to_drive(out_path)
+        except AttributeError:
+            # fallback для старых версий PTB
+            await file.download(out_path)
+    except Exception as e:
+        await query.edit_message_text(f"Ошибка при скачивании файла: {e}")
+        return ConversationHandler.END
+
+    # попытка записать в базу (абстрактно)
+    try:
+        # db.insert_meme(path, caption, media_type) — реализуй в db
+        db.insert_meme(out_path, caption)
+    except Exception as e:
+        # файл уже скачан, но запись упала — сообщаем
+        await query.edit_message_text(f"Файл сохранён локально как {filename}, но запись в БД упала: {e}")
+        # очистим временные данные
+        context.user_data.pop("file_id", None)
+        context.user_data.pop("m_type", None)
+        context.user_data.pop("m_ext", None)
+        context.user_data.pop("m_caption", None)
+        return ConversationHandler.END
+
+    # успешно
+    await query.edit_message_text(f"Сохранено: {filename}")
+    # очистим временные данные
+    context.user_data.pop("file_id", None)
+    context.user_data.pop("m_type", None)
+    context.user_data.pop("m_ext", None)
+    context.user_data.pop("m_caption", None)
+    return ConversationHandler.END
+
+
+async def cancel_meme(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fallback /cancel — удаляем временные данные и файл (если был скачан как временный)."""
+    # (в этом варианте мы скачиваем только по подтверждению, поэтому обычно чистим только user_data)
+    await update.message.reply_text("Добавление мемa отменено.")
+    context.user_data.pop("file_id", None)
+    context.user_data.pop("m_type", None)
+    context.user_data.pop("m_ext", None)
+    # если всё же что-то было скачано в 'm_path' — удалим
+    m_path = context.user_data.pop("m_path", None)
+    if m_path and os.path.exists(m_path):
+        try:
+            os.remove(m_path)
+        except Exception:
+            pass
+    return ConversationHandler.END
+
 
 @restricted
 async def yes_or_no(update: Update):
@@ -211,7 +428,7 @@ async def pick_who(update: Update):
 if __name__ == '__main__':
     application = ApplicationBuilder().token(TOKEN).build()
 
-    conv_handler = ConversationHandler(
+    quote_handler = ConversationHandler(
         entry_points=[CommandHandler("add_quote", start_add_quote)],
         states={
             QUOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, quote_received)],
@@ -221,9 +438,28 @@ if __name__ == '__main__':
         fallbacks=[],
         per_message=False
     )
+    meme_handler = ConversationHandler(
+    entry_points=[CommandHandler("add_meme", start_add_meme)],
+    states={
+        FILE: [
+            MessageHandler(filters.VIDEO | filters.PHOTO | filters.Document.ALL, file_received),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: u.message.reply_text("Пожалуйста, пришлите файл (видео или фото).") or FILE),
+        ],
+        CAPTION: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, caption_received),
+            CommandHandler("skip", skip_caption),
+        ],
+        VID_CONFIRM: [
+            CallbackQueryHandler(file_confirmed, pattern=r"^meme_confirm:(confirm|cancel)$")
+        ],
+    },
+    fallbacks=[CommandHandler("cancel", cancel_meme)],
+    per_message=False,
+)
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(conv_handler)
+    application.add_handler(quote_handler)
+    application.add_handler(meme_handler)
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(CommandHandler('remove_this_fucking_keyboard', remove_buttons))
     application.add_handler(MessageHandler(filters.TEXT, mention_response))
