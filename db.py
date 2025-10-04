@@ -1,40 +1,42 @@
-import sqlite3
 import logging
+from own import supabase
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
-connection = sqlite3.connect("bot.db")
-cursor = connection.cursor()
 
 def is_user_allowed(user_id) -> bool:
-    cursor.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id, ))
-    allowed = cursor.fetchone() is not None
+    response = supabase.table("users").select("user_id").execute()
+    allowed = response.data is not None
     logging.info(f"User [{user_id}] allowed: {allowed}")
     return allowed
 
 def is_func_open_for_public(func_name) -> bool:
-    cursor.execute("SELECT 1 FROM funcs WHERE func_name = ?", (func_name, ))
-    allowed = cursor.fetchone() is not None
+    response = supabase.table("funcs").select("func_name").execute()
+    allowed = response.data is not None
     logging.info(f"Func [{func_name}] open: {allowed}")
     return allowed
 
 def get_quote() -> tuple[str, str]:
-    cursor.execute("SELECT quote, author FROM quotes ORDER BY RANDOM() LIMIT 1")
-    quote, author = cursor.fetchone()
+    response = supabase.rpc("get_random_quote").execute()
+    data = response.data[0]
+    quote, author = data["quote"], data["author"]
     return quote, author
 
 def get_meme() -> tuple[str, str, str]:
-    cursor.execute("SELECT path, caption FROM memes ORDER BY RANDOM() LIMIT 1")
-    path, caption = cursor.fetchone()
+    response = supabase.rpc("get_random_meme").execute()
+    data = response.data[0]
+    path, caption = data["path"], data["caption"]
     ext = str(path).split(".")[1]
     return path, caption, ext
 
+def get_games():
+    response = supabase.table("games").select("*").execute()
+    return response.data
+
 def insert_meme(path, caption):
-    cursor.execute("INSERT INTO memes (path, caption) VALUES (?, ?)", (path, caption))
-    connection.commit()
+    supabase.table("memes").insert({"path": path, "caption": caption}).execute()
 
 def insert_quote(quote, author):
-    cursor.execute("INSERT INTO quotes (quote, author) VALUES (?, ?)", (quote, author))
-    connection.commit()
+    supabase.table("memes").insert({"quote": quote, "author": author}).execute()

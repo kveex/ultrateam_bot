@@ -9,26 +9,19 @@ from telegram.helpers import escape_markdown
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardRemove, MaybeInaccessibleMessage
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, ConversationHandler, filters
-import db
+import db as db
 from own import TOKEN
 
-# Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-GAMES = [
-    "Bopl Battle", "Buckshot Roulette", "Content Warning",
-    "Lethal Company", "R.E.P.O", "WEBFISHING",
-    "Minecraft", "Roblox", "Deep Rock Galactic", "Peak"
-]
 chicken_jockey = [
     "чикен джоке", "чикен жоке", "чикен джоки",
     "чикен жоки", "чикен джокей", "чикен жокей",
     "chicken jockey", "chicken jokey", "chicken jocey"
 ]
-flint_and_steel = ["флинт анд стиил", "флинт анд стиел", "флинт анд стил"]
 
 QUOTE, AUTHOR, CONFIRM = range(3)
 FILE, CAPTION, VID_CONFIRM = range(3, 6)
@@ -61,7 +54,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-@restricted
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -92,9 +84,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def pick_game(update: Update, msg: MaybeInaccessibleMessage):
     await msg.edit_text("🎲 Выбираем игру...", reply_markup=None)
+    games = db.get_games()
     for _ in range(4):
         await asyncio.sleep(1)
-        game = random.choice(GAMES)
+        game = random.choice(games)["name"]
         logging.info(f"Possible game: {game}")
         new_text = f"🎮 Возможно: {game}"
         try:
@@ -106,7 +99,7 @@ async def pick_game(update: Update, msg: MaybeInaccessibleMessage):
             break
 
     await asyncio.sleep(1)
-    final_game = random.choice(GAMES)
+    final_game = random.choice(games)["name"]
     logging.info(f"Final game: {final_game}")
     await msg.edit_text(f"✅ Сегодня играем в: *{final_game}*", parse_mode="Markdown")
 
@@ -215,7 +208,6 @@ async def confirm_or_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @restricted
 async def start_add_meme(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Запуск /add_meme — просим прислать фото или видео."""
     await update.message.reply_text(
         "📩 Пришлите видео или фото (как медиа или как файл). "
         "После получения файла я попрошу подпись. Отправьте /cancel чтобы отменить."
@@ -230,44 +222,31 @@ async def start_add_meme(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def file_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Обработка присланного файла: video | photo | document.
-    Сохраняем file_id, тип и предполагаемое расширение — но НЕ скачиваем пока пользователь не подтвердит.
-    """
     msg = update.message
     if not msg:
         await update.message.reply_text("Не получилось получить сообщение. Повторите, пожалуйста.")
         return FILE
-
-    file_id = None
-    media_type = None
-    ext = ""
 
     if msg.video:
         file_id = msg.video.file_id
         media_type = "video"
         ext = ".mp4"
     elif msg.photo:
-        # выбираем самый большой вариант фото
         largest = msg.photo[-1]
         file_id = largest.file_id
         media_type = "photo"
         ext = ".jpg"
     elif msg.document:
-        # document: попытаемся сохранить оригинальное расширение
         file_id = msg.document.file_id
         filename = getattr(msg.document, "file_name", "") or ""
         ext = os.path.splitext(filename)[1] or ""
         mime = getattr(msg.document, "mime_type", "") or ""
         if mime.startswith("video") and not ext:
             ext = ".mp4"
-        # классифицируем как video если mime video, иначе как document (photo/document)
         media_type = "video" if mime.startswith("video") else "document"
-        # если документ и нет расширения — поставим .dat
         if not ext:
             ext = ".dat"
     else:
-        # если пользователь прислал что-то не то — даём кнопку отмены и остаёмся в FILE
         await msg.reply_text(
             "🥺 Пожалуйста пришлите видео или фото (как файл/медиа).",
             reply_markup=InlineKeyboardMarkup(
@@ -276,7 +255,6 @@ async def file_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return FILE
 
-    # сохраним в user_data (пока не скачиваем)
     context.user_data["file_id"] = file_id
     context.user_data["m_type"] = media_type
     context.user_data["m_ext"] = ext
@@ -286,7 +264,6 @@ async def file_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def caption_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Пользователь прислал подпись — показываем кнопки подтверждения."""
     caption = update.message.text or ""
     context.user_data["m_caption"] = caption
 
@@ -313,20 +290,13 @@ async def skip_caption(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def file_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Обработка inline-кнопки подтверждения: если confirm — скачиваем и сохраняем (вызов db.insert_meme).
-    Если cancel — отменяем.
-    """
     query = update.callback_query
     await query.answer()
     data = (query.data or "")
     parts = data.split(":")
     action = parts[1] if len(parts) > 1 else ""
 
-    # только владелец должен подтверждать — но тут ConversationHandler уже связан с тем же пользователем,
-    # тем не менее можно перестраховаться, проверив ID в message (если нужно)
     if action == "cancel":
-        # очистим временные данные
         context.user_data.pop("file_id", None)
         context.user_data.pop("m_type", None)
         context.user_data.pop("m_ext", None)
@@ -334,7 +304,6 @@ async def file_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Добавление отменено.")
         return ConversationHandler.END
 
-    # action == "confirm"
     file_id = context.user_data.get("file_id")
     media_type = context.user_data.get("m_type")
     ext = context.user_data.get("m_ext", "")
@@ -344,13 +313,11 @@ async def file_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Что-то пошло не так — нет данных о файле. Отмена.")
         return ConversationHandler.END
 
-    # формируем уникальное имя с расширением (если ext пустой — подставим .dat)
     if not ext:
         ext = ".dat"
     filename = f"{random.randint(0, 32000)}_{random.randint(0, 32000)}{ext}"
     out_path = os.path.join("memes", filename)
 
-    # скачиваем файл
     try:
         file = await context.bot.get_file(file_id)
         try:
@@ -362,23 +329,17 @@ async def file_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"Ошибка при скачивании файла: {e}")
         return ConversationHandler.END
 
-    # попытка записать в базу (абстрактно)
     try:
-        # db.insert_meme(path, caption, media_type) — реализуй в db
         db.insert_meme(out_path, caption)
     except Exception as e:
-        # файл уже скачан, но запись упала — сообщаем
         await query.edit_message_text(f"Файл сохранён локально как {filename}, но запись в БД упала: {e}")
-        # очистим временные данные
         context.user_data.pop("file_id", None)
         context.user_data.pop("m_type", None)
         context.user_data.pop("m_ext", None)
         context.user_data.pop("m_caption", None)
         return ConversationHandler.END
 
-    # успешно
     await query.edit_message_text(f"Сохранено: {filename}")
-    # очистим временные данные
     context.user_data.pop("file_id", None)
     context.user_data.pop("m_type", None)
     context.user_data.pop("m_ext", None)
@@ -387,13 +348,10 @@ async def file_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cancel_meme(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Fallback /cancel — удаляем временные данные и файл (если был скачан как временный)."""
-    # (в этом варианте мы скачиваем только по подтверждению, поэтому обычно чистим только user_data)
     await update.message.reply_text("Добавление мемa отменено.")
     context.user_data.pop("file_id", None)
     context.user_data.pop("m_type", None)
     context.user_data.pop("m_ext", None)
-    # если всё же что-то было скачано в 'm_path' — удалим
     m_path = context.user_data.pop("m_path", None)
     if m_path and os.path.exists(m_path):
         try:
@@ -408,7 +366,7 @@ async def yes_or_no(update: Update):
 
     yes = bool(random.randint(0, 1))
 
-    yes_answers = ["Да", "Ага", "Думаю да", "Конечно"]
+    yes_answers = ["Да", "Ага", "Думаю да", "Конечно", "Если я скажу да, вы меня отпустите?"]
     no_answer = ["Нет", "Неа", "Думаю нет", "Точно нет"]
 
     text = random.choice(yes_answers) if yes else random.choice(no_answer)
