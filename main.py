@@ -374,7 +374,7 @@ async def yes_or_no(update: Update):
 
 @restricted
 async def pick_who(update: Update):
-    names = ["Квикс", "Куст", "Фиш", "Пингвин", "Я"]
+    names = ["Квикс", "Куст", "Фиш", "Пингвин", "Фелон", "Я"]
     words = ["Думаю", "Наверное", "Вероятно", " ", " ", " "]
 
     name = random.choice(names)
