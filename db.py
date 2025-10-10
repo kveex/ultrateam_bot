@@ -45,4 +45,4 @@ def insert_meme(path, caption):
     supabase.table("memes").insert({"path": path, "caption": caption}).execute()
 
 def insert_quote(quote, author):
-    supabase.table("memes").insert({"quote": quote, "author": author}).execute()
+    supabase.table("quotes").insert({"quote": quote, "author": author}).execute()
