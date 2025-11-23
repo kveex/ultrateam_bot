@@ -1,6 +1,6 @@
 from telegram import Update
 from utils.decorators import restricted
-from utils.logger import Logger
+from utils import Logger
 from utils.database import db
 
 @restricted
@@ -19,4 +19,4 @@ async def send_meme(update: Update):
     if ext == "mp4":
         await update.effective_chat.send_video(video=path, caption=caption)
     elif ext == "jpg":
-        await update.effective_chat.send_photo(path, caption)
+        await update.effective_chat.send_photo(photo=path, caption=caption)

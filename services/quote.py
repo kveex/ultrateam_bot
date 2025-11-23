@@ -1,7 +1,7 @@
 from telegram import Update, MaybeInaccessibleMessage
 from telegram.helpers import escape_markdown
 from utils.decorators import restricted
-from utils.logger import Logger
+from utils import Logger
 from utils.database import db
 
 @restricted

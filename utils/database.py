@@ -1,6 +1,8 @@
 from supabase import create_client, Client
 from dotenv import load_dotenv
-from utils.logger import Logger
+from utils import Logger
+from pathlib import Path
+import mimetypes
 import os
 
 load_dotenv()
@@ -48,12 +50,23 @@ class Database:
         self.db.table("quotes").insert({"quote": quote, "author": author, "year": year}).execute()
 
     def get_meme(self) -> tuple[str, str, str]:
-        response = self.db.rpc("get_random_meme").execute()
+        response = self.db.rpc("get_random_meme_new").execute()
+        
+        Logger.info(f"Pulled meme: [{response}]")
+
         data = response.data[0]
+
         path: str = data["path"]
         caption: str = data["caption"]
-        ext: str = path.split(".")[1]
-        return path, caption, ext
+        ext: str = Path(path).suffix
+
+        url = self.db.storage.from_("memes").get_public_url(path=path)
+        
+        Logger.info(f"Pulled url: [{url}]")
+
+        link: str = url
+
+        return link, caption, ext
 
     def get_games(self):
         response = self.db.table("games").select("*").execute()
@@ -80,5 +93,25 @@ class Database:
 
         if good_status:
             Logger.info("Database cleaned")
+    
+    def upload_meme(self, path: Path | str, caption: str):
+        p = Path(path)
+
+        if not p.exists():
+            raise FileNotFoundError(p)
+
+        filename: str = p.name
+
+        mime_type, _ = mimetypes.guess_type(str(p))
+        if not mime_type:
+            if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp"):
+                mime_type = "image/jpeg"
+            elif p.suffix.lower() in (".mp4", ".mov", ".mkv"):
+                mime_type = "video/mp4"
+
+        with open(p, "rb") as f:
+            self.db.storage.from_("memes").upload(filename, f, file_options={"content-type": mime_type})
+
+        self.db.table("memes_new").insert({"path": filename, "caption": caption}).execute()
 
 db: Database = Database(create_client(url, key))

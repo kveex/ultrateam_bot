@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from utils.decorators import restricted
 from utils.database import db
-from utils.logger import Logger
+from utils import Logger
 import datetime
 
 QUOTE, AUTHOR, CONFIRM = range(3)

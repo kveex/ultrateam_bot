@@ -1,6 +1,6 @@
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
-from utils.logger import Logger
+from utils import Logger
 from services.game import pick_game
 from services.quote import pick_quote
 from services.meme import send_meme

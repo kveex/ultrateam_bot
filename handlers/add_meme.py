@@ -2,9 +2,9 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from utils.decorators import restricted
 from utils.database import db
-from utils.logger import Logger
+from utils import Logger
 import random
-import os
+from pathlib import Path
 
 FILE, CAPTION, VID_CONFIRM = range(3, 6)
 
@@ -41,7 +41,7 @@ async def file_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif msg.document:
         file_id = msg.document.file_id
         filename = getattr(msg.document, "file_name", "") or ""
-        ext = os.path.splitext(filename)[1] or ""
+        ext = Path(filename).suffix
         mime = getattr(msg.document, "mime_type", "") or ""
         if mime.startswith("video") and not ext:
             ext = ".mp4"
@@ -117,8 +117,12 @@ async def file_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not ext:
         ext = ".dat"
+
+    if not Path("memes").exists():
+        Path("memes").mkdir()
+
     filename = f"{random.randint(0, 32000)}_{random.randint(0, 32000)}{ext}"
-    out_path = os.path.join("memes", filename)
+    out_path = Path("memes") / filename
 
     try:
         file = await context.bot.get_file(file_id)
@@ -131,7 +135,7 @@ async def file_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     try:
-        db.insert_meme(out_path, caption)
+        db.upload_meme(out_path, caption)
     except Exception as e:
         await query.edit_message_text(f"Файл сохранён локально как {filename}, но запись в БД упала: {e}")
         context.user_data.pop("file_id", None)
@@ -139,12 +143,19 @@ async def file_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("m_ext", None)
         context.user_data.pop("m_caption", None)
         return ConversationHandler.END
+    
+    try:
+        await query.edit_message_text(f"✅ Мем сохранён: {filename}")
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            raise
 
     Logger.info(f"Meme saved [{out_path}]")
     context.user_data.pop("file_id", None)
     context.user_data.pop("m_type", None)
     context.user_data.pop("m_ext", None)
     context.user_data.pop("m_caption", None)
+    Path(out_path).unlink()
     return ConversationHandler.END
 
 
@@ -154,9 +165,9 @@ async def cancel_meme(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("m_type", None)
     context.user_data.pop("m_ext", None)
     m_path = context.user_data.pop("m_path", None)
-    if m_path and os.path.exists(m_path):
+    if m_path and Path(m_path).exists():
         try:
-            os.remove(m_path)
+            Path(m_path).rmdir()
         except Exception:
             pass
     return ConversationHandler.END

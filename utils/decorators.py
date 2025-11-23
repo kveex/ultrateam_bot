@@ -1,6 +1,6 @@
 from functools import wraps
 from telegram import Update
-from utils.logger import Logger
+from utils import Logger
 from utils.database import db
 
 def restricted(func):

@@ -1,6 +1,6 @@
 from telegram import Update
 import random
-from utils.logger import Logger
+from utils import Logger
 from utils.decorators import restricted
 
 @restricted

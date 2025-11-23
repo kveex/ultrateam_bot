@@ -3,7 +3,7 @@ from telegram.error import BadRequest
 import asyncio
 import random
 from utils.decorators import restricted
-from utils.logger import Logger
+from utils import Logger
 from utils.database import db
 
 @restricted

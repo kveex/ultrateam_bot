@@ -6,7 +6,7 @@ from handlers.add_quote import quote_handler
 from handlers.add_meme import meme_handler
 import os
 
-TOKEN: str = os.environ.get("TOKEN")
+TOKEN: str = os.environ.get("TG_TOKEN")
 
 class Bot():
     def __init__(self) -> None:
