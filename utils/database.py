@@ -60,11 +60,11 @@ class Database:
         caption: str = data["caption"]
         ext: str = Path(path).suffix
 
-        url = self.db.storage.from_("memes").get_public_url(path=path)
+        file_url = self.db.storage.from_("memes").get_public_url(path=path)
         
-        Logger.info(f"Pulled url: [{url}]")
+        Logger.info(f"Pulled url: [{file_url}]")
 
-        link: str = url
+        link: str = file_url
 
         return link, caption, ext
 

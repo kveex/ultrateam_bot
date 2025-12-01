@@ -126,10 +126,7 @@ async def file_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         file = await context.bot.get_file(file_id)
-        try:
-            await file.download_to_drive(out_path)
-        except AttributeError:
-            await file.download(out_path)
+        await file.download_to_drive(out_path)
     except Exception as e:
         await query.edit_message_text(f"Ошибка при скачивании файла: {e}")
         return ConversationHandler.END
@@ -145,7 +142,7 @@ async def file_confirmed(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     try:
-        await query.edit_message_text(f"✅ Мем сохранён: {filename}")
+        await query.edit_message_text(f"Мем сохранён: {filename}")
     except Exception as e:
         if "Message is not modified" not in str(e):
             raise
@@ -164,12 +161,6 @@ async def cancel_meme(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop("file_id", None)
     context.user_data.pop("m_type", None)
     context.user_data.pop("m_ext", None)
-    m_path = context.user_data.pop("m_path", None)
-    if m_path and Path(m_path).exists():
-        try:
-            Path(m_path).rmdir()
-        except Exception:
-            pass
     return ConversationHandler.END
 
 meme_handler: ConversationHandler = ConversationHandler(

@@ -1,6 +1,6 @@
 from PyCharacterAI import get_client
 from dotenv import load_dotenv
-from utils import Logger
+from utils import Logger, TokenException
 from telegram import Update
 from utils.decorators import restricted
 import os
@@ -9,6 +9,9 @@ load_dotenv()
 
 token: str = os.environ.get("CAI_TOKEN")
 ai_id: str = os.environ.get("CAI_ID")
+
+if not token or not ai_id:
+    raise TokenException("CAI_TOKEN(Character AI) and CAI_ID(Character AI bot ID) are required.")
 
 @restricted
 async def say_with_ai(update: Update, prompt: str):

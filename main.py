@@ -1,4 +1,5 @@
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, ConversationHandler, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from utils import TokenException
 from handlers.start_func import start
 from handlers.buttons import button_handler
 from handlers.mentions import mention_response
@@ -8,7 +9,10 @@ import os
 
 TOKEN: str = os.environ.get("TG_TOKEN")
 
-class Bot():
+if not TOKEN:
+    raise TokenException("TG_TOKEN(Telegram bot token) are required.")
+
+class Bot:
     def __init__(self) -> None:
         self.application= ApplicationBuilder().token(TOKEN).build()
 
