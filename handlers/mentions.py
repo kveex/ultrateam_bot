@@ -7,12 +7,15 @@ from utils.database import db
 from services.meme import reply_meme
 from services.yes_no import yes_or_no
 from services.pick_who import pick_who
-from services.ai_answer import say_with_ai
+from services.ai_answer import send_ai_message
+from services.pseudo_download import say_download
 import re
 
+
 async def mention_response(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    text: str = update.message.text or ""
-    text_cf = text.casefold()
+    text_cf = ""
+    if update.message:
+        text_cf = update.message.text.casefold()
 
     triggers: list = sorted(db.get_triggers(), key=lambda x: x["priority"])
 
@@ -32,22 +35,26 @@ async def mention_response(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 matched = True
 
         elif trigger_type == "hard":
-            Logger.info(f"Mentioned by {update.effective_user.full_name} (pattern: {repr(pattern)}, type: {trigger_type}, action: {action})")
+            Logger.info(
+                f"Mentioned by {update.effective_user.full_name} (pattern: {repr(pattern)}, type: {trigger_type}, action: {action})")
             await run_hard_action(update)
             return
 
         if matched:
-            Logger.info(f"Mentioned by {update.effective_user.full_name} (pattern: {repr(pattern)}, type: {trigger_type}, action: {action})")
+            Logger.info(
+                f"Mentioned by {update.effective_user.full_name} (pattern: {repr(pattern)}, type: {trigger_type}, action: {action})")
             await run_action(action, update, context)
             return
 
-async def run_action(action: str, update: Update, context: ContextTypes) -> None:
+
+async def run_action(action: str, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if action == "start":
         await start(update, context)
     elif action == "sad":
         await say_funny_stuff(update, ":(")
     elif action == "say_normal":
-        await say_funny_stuff(update, "УльтраНормально? Мне было УльтраНормально однажды. Они УльтраЗакрыли меня в УльтраКомнате. УльтраРезиновой УльтраКомнате. УльтраРезиновой УльтраКомнате с УльтраКрысами. И мне было УльтраНормально.")
+        await say_funny_stuff(update,
+                              "УльтраНормально? Мне было УльтраНормально однажды. Они УльтраЗакрыли меня в УльтраКомнате. УльтраРезиновой УльтраКомнате. УльтраРезиновой УльтраКомнате с УльтраКрысами. И мне было УльтраНормально.")
     elif action == "yes_or_no":
         await yes_or_no(update)
     elif action == "pick_who":
@@ -55,9 +62,12 @@ async def run_action(action: str, update: Update, context: ContextTypes) -> None
     elif action == "reply_meme":
         await reply_meme(update)
     elif action == "ai_answer":
-        await say_with_ai(update, update.message.text.casefold())
+        await send_ai_message(update)
+    elif action == "download":
+        await say_download(update)
     else:
         Logger.error(f"⚠ unknown action {action}")
+
 
 async def run_hard_action(update: Update):
     funny = re.compile(r'\b[хепи]{2,}\b', re.IGNORECASE)
@@ -66,6 +76,7 @@ async def run_hard_action(update: Update):
         await say_funny_stuff(update, ")")
     elif funny.search(text.lower()):
         await say_funny_stuff(update, "Хех...)")
+
 
 @restricted
 async def say_funny_stuff(update: Update, text: str):
